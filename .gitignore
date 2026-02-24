@@ -1,0 +1,5 @@
+anpr_env/
+__pycache__/
+*.jpg
+*.png
+*.pt
