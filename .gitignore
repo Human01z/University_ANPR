@@ -1,5 +1,16 @@
+# Ignore Environment and IDE settings
 anpr_env/
-results/
-*.pt
+.vscode/
 __pycache__/
-.env
+
+# Ignore specific folders marked in red
+Numberplate/
+IGNORE/
+
+# Ignore ALL video files (they are too large for Git)
+*.mp4
+*.avi
+sample/
+
+# Keep the weights but ignore other large files
+# v3.pt is okay to keep if it's small, otherwise ignore it
