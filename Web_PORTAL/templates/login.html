@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset='utf-8'><title>ANPR Login</title><link rel='stylesheet' href='/static/style.css'></head>
+<body>
+<main class='login-page'>
+  <section class='login-image-section'>
+    <div>
+      <h1>University of Colombo<br>F.O.T</h1>
+      <p>Welcome to the Automated Number Plate Recognition (ANPR) System. Security begins here.</p>
+    </div>
+  </section>
+  <section class='login-form-section'>
+    <div class='login-form-card'>
+      <h2>Guard Portal Login</h2>
+      <form method='post' action='/login'>
+        <label>Username</label>
+        <input name='username' required placeholder='Enter your username'>
+        <label>Password</label>
+        <input type='password' name='password' required placeholder='Enter your password'>
+        <button type='submit' class='btn-primary'>Login to Dashboard</button>
+      </form>
+      {% if error %}<p class='err'>{{error}}</p>{% endif %}
+      <p class='hint'>System Admins: contact Faculty IT for password reset.</p>
+    </div>
+  </section>
+</main>
+</body></html>

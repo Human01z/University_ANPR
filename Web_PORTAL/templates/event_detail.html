@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Verify Event</title><link rel='stylesheet' href='/static/style.css'><script defer src='/static/offline.js'></script></head>
+<body><header>
+  <div class='header-brand-container'>
+    <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
+    <div class='header-title-stack'>
+      <h1>University of Colombo</h1>
+      <h2>Faculty of Technology</h2>
+      <h3>ANPR Security Gate System</h3>
+    </div>
+  </div>
+  <div class='log-subheading verify-sub'>Verification</div>
+  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><a href='/logout'>Logout</a></nav>
+</header>
+
+<div class='page-wrap verify-shell'>
+  <section class='verify-info-card'>
+    <p class='verify-kicker'><strong>AI No Plate Detection Result</strong></p>
+    <div class='verify-plate'><strong>{{event['plate_ai'] or 'NOT_FOUND'}}</strong></div>
+    <div class='verify-meta'>
+      <span><b>Confidence:</b> {{'%.3f'|format(event['ai_conf'] or 0)}}</span>
+      <span><b>Date/Time:</b> {{event['event_time']}}</span>
+      <span><b>Direction:</b> {{event['direction'] or 'N/A'}}</span>
+      <span><b>Gate:</b> {{event['gate'] or 'N/A'}}</span>
+    </div>
+  </section>
+
+  <form id='reviewForm' method='post' action='/events/{{event["id"]}}/review'>
+    <div class='verify-grid'>
+    {% for img in images %}
+      <label class='imgpick verify-pick'>
+      <input type='radio' name='best_image' value='{{img}}' {% if img==event['best_image_path'] %}checked{% endif %}>
+      <a href='/{{img}}' target='_blank' title='Open full image'>
+        <img src='/{{img}}' alt='capture'>
+      </a>
+      </label>
+    {% endfor %}
+    </div>
+
+    <label>Manual Plate Override
+    <input name='corrected_plate' placeholder='Type corrected plate here'>
+    </label>
+
+    <div class='actions verify-actions'>
+      <button class='btn-approve' name='action' value='approve'>Approve & Save</button>
+      <button class='btn-edit' name='action' value='edit_save'>Edit & Save</button>
+      <button class='btn-reject' name='action' value='reject'>Reject / False Alarm</button>
+      <button class='btn-flag' name='action' value='flag'>Flag for Admin</button>
+    </div>
+  </form>
+
+  <p class='hint'>If offline, action is queued on tablet and synced automatically when internet returns.</p>
+</div>
+</body></html>

@@ -1,16 +1,25 @@
-# Ignore Environment and IDE settings
+# Virtual Environments
 anpr_env/
-.vscode/
+
+# Python Cache
 __pycache__/
+*.pyc
 
-# Ignore specific folders marked in red
-Numberplate/
-IGNORE/
+# Web Portal Data (Don't upload the database or user uploads)
+Web_PORTAL/data/
+Web_PORTAL/uploads/
+*.db
+*.sqlite3
 
-# Ignore ALL video files (they are too large for Git)
+# Video and Output Files you crossed out
+outputs/
+video samples/
+anpr_output/
 *.mp4
 *.avi
-sample/
+*.csv
+*.xlsx
 
-# Keep the weights but ignore other large files
-# v3.pt is okay to keep if it's small, otherwise ignore it
+# Folders marked to ignore
+IGNORE/
+.EasyOCR/

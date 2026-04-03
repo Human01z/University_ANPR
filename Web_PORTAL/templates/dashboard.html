@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Pending Queue</title><link rel='stylesheet' href='/static/style.css'></head>
+<body><header>
+  <div class='header-brand-container'>
+    <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
+    <div class='header-title-stack'>
+      <h1>University of Colombo</h1>
+      <h2>Faculty of Technology</h2>
+      <h3>ANPR Security Gate System</h3>
+    </div>
+  </div>
+  <div class='log-subheading'>Pending Queue</div>
+  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><a href='/logout'>Logout</a></nav>
+</header>
+<div class='page-wrap'>
+<table><tr><th>ID</th><th>Plate AI</th><th>Dir</th><th>Gate</th><th>Time</th><th>Action</th></tr>
+{% for e in events %}
+<tr><td>{{e['id']}}</td><td>{{e['plate_ai']}}</td><td>{{e['direction']}}</td><td>{{e['gate']}}</td><td>{{e['event_time']}}</td><td><a class='btn-primary table-action' href='/events/{{e["id"]}}'>Review</a></td></tr>
+{% endfor %}
+</table></div></body></html>

@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Log Book</title><link rel='stylesheet' href='/static/style.css'></head>
+<body><header>
+  <div class='header-brand-container'>
+    <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
+    <div class='header-title-stack'>
+      <h1>University of Colombo</h1>
+      <h2>Faculty of Technology</h2>
+      <h3>ANPR Security Gate System</h3>
+    </div>
+  </div>
+  <div class='log-subheading'>Historical Log</div>
+  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><a href='/logout'>Logout</a></nav>
+</header>
+<div class='page-wrap'>
+<form method='get' class='filters'>
+<input name='q' placeholder='plate or vehicle' value='{{filters.q}}'>
+<select name='direction'><option value=''>Direction</option><option {% if filters.direction=='Entry' %}selected{% endif %}>Entry</option><option {% if filters.direction=='Exit' %}selected{% endif %}>Exit</option></select>
+<select name='status'><option value=''>Status</option>{% for s in ['pending','approved','rejected','flagged'] %}<option value='{{s}}' {% if filters.status==s %}selected{% endif %}>{{s}}</option>{% endfor %}</select>
+<input name='gate' placeholder='gate' value='{{filters.gate}}'>
+<input name='reviewer' placeholder='reviewer' value='{{filters.reviewer}}'>
+<button type='submit' class='btn-primary'>Search</button>
+</form>
+<table><tr><th>ID</th><th>Final Plate</th><th>AI</th><th>Type</th><th>Dir</th><th>Status</th><th>Reviewer</th><th>Time</th></tr>
+{% for e in events %}
+<tr><td>{{e['id']}}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']}}</td></tr>
+{% endfor %}
+</table></div></body></html>
