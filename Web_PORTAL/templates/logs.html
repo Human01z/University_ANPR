@@ -18,10 +18,17 @@
 <select name='status'><option value=''>Status</option>{% for s in ['pending','approved','rejected','flagged'] %}<option value='{{s}}' {% if filters.status==s %}selected{% endif %}>{{s}}</option>{% endfor %}</select>
 <input name='gate' placeholder='gate' value='{{filters.gate}}'>
 <input name='reviewer' placeholder='reviewer' value='{{filters.reviewer}}'>
+<input type='date' name='event_date' value='{{filters.event_date}}'>
+<input type='time' name='time_from' value='{{filters.time_from}}'>
+<input type='time' name='time_to' value='{{filters.time_to}}'>
 <button type='submit' class='btn-primary'>Search</button>
 </form>
-<table><tr><th>ID</th><th>Final Plate</th><th>AI</th><th>Type</th><th>Dir</th><th>Status</th><th>Reviewer</th><th>Time</th></tr>
+<table><tr><th>ID</th><th>Final Plate</th><th>AI</th><th>Type</th><th>Dir</th><th>Status</th><th>Reviewer</th><th>Time</th><th>Image</th><th>Open</th></tr>
 {% for e in events %}
-<tr><td>{{e['id']}}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']}}</td></tr>
+<tr>
+  <td>{{e['id']}}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']}}</td>
+  <td>{% if e['best_image_path'] %}<a class='btn-primary table-action' target='_blank' href='/{{e["best_image_path"]}}'>View</a>{% else %}-{% endif %}</td>
+  <td><a class='btn-primary table-action' href='/events/{{e["id"]}}'>Details</a></td>
+</tr>
 {% endfor %}
 </table></div></body></html>

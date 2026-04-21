@@ -277,6 +277,9 @@ def logs(
     status: str = "",
     reviewer: str = "",
     gate: str = "",
+    event_date: str = "",
+    time_from: str = "",
+    time_to: str = "",
 ):
     user = require_user(request)
     conn = db_conn()
@@ -299,6 +302,17 @@ def logs(
     if gate:
         sql += " AND gate LIKE ?"
         params.append(f"%{gate}%")
+    if event_date:
+        sql += " AND date(event_time)=date(?)"
+        params.append(event_date)
+    if time_from:
+        tf = time_from if len(time_from) == 8 else f"{time_from}:00"
+        sql += " AND substr(replace(event_time,'T',' '),12,8) >= ?"
+        params.append(tf)
+    if time_to:
+        tt = time_to if len(time_to) == 8 else f"{time_to}:59"
+        sql += " AND substr(replace(event_time,'T',' '),12,8) <= ?"
+        params.append(tt)
 
     sql += " ORDER BY datetime(event_time) DESC LIMIT 300"
     rows = conn.execute(sql, params).fetchall()
@@ -310,7 +324,16 @@ def logs(
             "request": request,
             "user": user,
             "events": rows,
-            "filters": {"q": q, "direction": direction, "status": status, "reviewer": reviewer, "gate": gate},
+            "filters": {
+                "q": q,
+                "direction": direction,
+                "status": status,
+                "reviewer": reviewer,
+                "gate": gate,
+                "event_date": event_date,
+                "time_from": time_from,
+                "time_to": time_to,
+            },
         },
     )
 

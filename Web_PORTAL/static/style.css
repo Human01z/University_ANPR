@@ -33,7 +33,7 @@ button{padding:12px 16px;border:none;border-radius:10px;font-weight:700;cursor:p
 .login-form-card .btn-primary{width:100%;margin-top:10px;font-size:1.2rem;letter-spacing:.5px}
 
 /* tables / logs */
-.filters{display:grid;grid-template-columns:2fr 1fr 1fr 1.4fr 1.4fr auto;gap:10px;margin:14px 0 16px}
+.filters{display:grid;grid-template-columns:1.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1fr 1fr auto;gap:10px;margin:14px 0 16px}
 .filters input,.filters select{margin:0}
 .filters button{align-self:stretch;min-width:110px}
 table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 6px 16px rgba(0,0,0,.05)}
