@@ -28,7 +28,7 @@
 <tr>
   <td>{{e['id']}}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']}}</td>
   <td>{% if e['best_image_path'] %}<a class='btn-primary table-action' target='_blank' href='/{{e["best_image_path"]}}'>View</a>{% else %}-{% endif %}</td>
-  <td><a class='btn-primary table-action' href='/events/{{e["id"]}}'>Details</a></td>
+  <td><a class='btn-primary table-action' href='/events/{{e["id"]}}?source=logs'>Details</a></td>
 </tr>
 {% endfor %}
 </table></div></body></html>

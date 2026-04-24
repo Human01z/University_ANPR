@@ -40,7 +40,7 @@ table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;borde
 th{background:var(--accent);color:#fff;padding:14px 12px;text-align:left}
 td{padding:12px;border-bottom:1px solid #eee}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
-.imgpick img{width:100%;height:130px;object-fit:cover;border:2px solid #bbb;border-radius:8px}
+.imgpick img{width:100%;height:170px;object-fit:contain;border:2px solid #bbb;border-radius:8px;background:#0f172a}
 .actions button{margin:6px 8px 0 0}
 .table-action{display:inline-block;padding:8px 12px;border-radius:8px;text-decoration:none;font-size:.92rem}
 .err{color:#b00020}.hint{color:#666;font-size:.92rem}

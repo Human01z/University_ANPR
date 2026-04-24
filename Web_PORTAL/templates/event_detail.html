@@ -25,6 +25,12 @@
   </section>
 
   <form id='reviewForm' method='post' action='/events/{{event["id"]}}/review'>
+    <input type='hidden' name='source' value='{{source or "dashboard"}}'>
+
+    {% if error %}
+    <p class='err'><b>{{error}}</b></p>
+    {% endif %}
+
     <div class='verify-grid'>
     {% for img in images %}
       <label class='imgpick verify-pick'>
@@ -40,11 +46,21 @@
     <input name='corrected_plate' placeholder='Type corrected plate here'>
     </label>
 
+    {% if source == 'logs' %}
+    <label>Admin Password (Required for historical edit)
+      <input type='password' name='admin_password' placeholder='Enter admin password'>
+    </label>
+    {% endif %}
+
     <div class='actions verify-actions'>
+      {% if source == 'logs' %}
+      <button class='btn-edit' name='action' value='edit_save'>Edit & Save</button>
+      {% else %}
       <button class='btn-approve' name='action' value='approve'>Approve & Save</button>
       <button class='btn-edit' name='action' value='edit_save'>Edit & Save</button>
       <button class='btn-reject' name='action' value='reject'>Reject / False Alarm</button>
       <button class='btn-flag' name='action' value='flag'>Flag for Admin</button>
+      {% endif %}
     </div>
   </form>
 

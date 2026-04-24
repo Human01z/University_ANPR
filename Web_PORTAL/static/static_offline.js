@@ -29,7 +29,9 @@
       event_id: parseInt(location.pathname.split('/')[2], 10),
       action: fd.get('action'),
       corrected_plate: fd.get('corrected_plate') || '',
-      best_image: fd.get('best_image') || ''
+      best_image: fd.get('best_image') || '',
+      source: fd.get('source') || 'dashboard',
+      admin_password: fd.get('admin_password') || ''
     };
 
     const q = loadQueue();

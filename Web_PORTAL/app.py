@@ -119,6 +119,17 @@ def require_user(request: Request):
     return user
 
 
+def is_valid_admin_password(conn: sqlite3.Connection, password: str) -> bool:
+    if not password:
+        return False
+    pw_hash = hash_password(password)
+    row = conn.execute(
+        "SELECT id FROM users WHERE role='admin' AND password_hash=? LIMIT 1",
+        (pw_hash,),
+    ).fetchone()
+    return row is not None
+
+
 def cleanup_non_best_images(image_paths: list[str], best_image: Optional[str]):
     for p in image_paths:
         if best_image and p == best_image:
@@ -192,7 +203,7 @@ def dashboard(request: Request):
 
 
 @app.get("/events/{event_id}", response_class=HTMLResponse)
-def event_detail(request: Request, event_id: int):
+def event_detail(request: Request, event_id: int, source: str = "dashboard"):
     user = require_user(request)
     conn = db_conn()
     event = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
@@ -201,7 +212,8 @@ def event_detail(request: Request, event_id: int):
         raise HTTPException(404, "Event not found")
     images = parse_images_json(event["all_images_json"])
     conn.close()
-    context = {"request": request, "user": user, "event": event, "images": images}
+    source = "logs" if source == "logs" else "dashboard"
+    context = {"request": request, "user": user, "event": event, "images": images, "source": source, "error": None}
     try:
         return templates.TemplateResponse("event_detail.html", context)
     except TemplateNotFound:
@@ -216,6 +228,8 @@ def review_event(
     action: str = Form(...),
     corrected_plate: str = Form(""),
     best_image: str = Form(""),
+    source: str = Form("dashboard"),
+    admin_password: str = Form(""),
 ):
     user = require_user(request)
     conn = db_conn()
@@ -232,6 +246,25 @@ def review_event(
         "reject": "rejected",
         "flag": "flagged",
     }
+    source = "logs" if source == "logs" else "dashboard"
+
+    if source == "logs":
+        # Historical logs page should only allow plate corrections.
+        if action != "edit_save":
+            conn.close()
+            raise HTTPException(400, "Only Edit & Save is allowed from historical logs")
+        if not is_valid_admin_password(conn, admin_password):
+            context = {
+                "request": request,
+                "user": user,
+                "event": event,
+                "images": images,
+                "source": "logs",
+                "error": "Admin password required to update a saved historical record.",
+            }
+            conn.close()
+            return templates.TemplateResponse("event_detail.html", context, status_code=403)
+
     status = status_map.get(action)
     if not status:
         conn.close()
@@ -264,6 +297,8 @@ def review_event(
     if status == "approved":
         cleanup_non_best_images(images, chosen_best)
 
+    if source == "logs":
+        return RedirectResponse("/logs", status_code=303)
     if next_pending:
         return RedirectResponse(f"/events/{next_pending['id']}", status_code=303)
     return RedirectResponse("/dashboard", status_code=303)
@@ -434,6 +469,8 @@ async def sync_actions(request: Request):
         action = item.get("action", "")
         corrected_plate = (item.get("corrected_plate") or "").strip()
         best_image = (item.get("best_image") or "").strip()
+        source = "logs" if item.get("source") == "logs" else "dashboard"
+        admin_password = (item.get("admin_password") or "").strip()
 
         event = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
         if not event:
@@ -444,6 +481,11 @@ async def sync_actions(request: Request):
         status = status_map.get(action)
         if not status:
             continue
+        if source == "logs":
+            if action != "edit_save":
+                continue
+            if not is_valid_admin_password(conn, admin_password):
+                continue
 
         chosen_best = best_image if best_image in images else (event["best_image_path"] or (images[0] if images else None))
         final_plate = corrected_plate or event["plate_ai"]
