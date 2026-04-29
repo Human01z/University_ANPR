@@ -22,6 +22,9 @@ except Exception:
 RTSP_URL = "rtsp://USER:PASS@192.168.0.100:554/stream1"
 ARDUINO_PORT = "COM3"          # e.g. COM3 on Windows, /dev/ttyUSB0 on Linux
 ARDUINO_BAUD = 9600
+ARDUINO_TRIGGER_WORDS = {"TRIGGER", "1", "VEHICLE"}
+PYTHON_TRIGGER_COOLDOWN_SEC = 3.8  # guards against duplicate sensor bounce on host side
+REQUIRE_VEHICLE_ON_TRIGGER = True  # ignore accidental beam triggers (e.g., pedestrians)
 
 YOLO_MODEL = "v3.pt"
 VEHICLE_CLASS_IDS = {2, 3, 5, 7}
@@ -120,14 +123,40 @@ def init_serial():
         return None
 
 
-def wait_for_trigger(ser) -> bool:
-    # Arduino should send lines like: TRIGGER or 1
+def wait_for_trigger(ser) -> Tuple[bool, str]:
+    # Arduino should send lines like: TRIGGER (matches the provided Uno sketch).
     if ser is None:
         # Fallback: manual keyboard trigger with OpenCV window not required; timed polling
         time.sleep(0.2)
-        return False
+        return False, ""
     line = ser.readline().decode(errors="ignore").strip().upper()
-    return line in {"TRIGGER", "1", "VEHICLE"}
+    if not line:
+        return False, ""
+    if line in ARDUINO_TRIGGER_WORDS:
+        return True, line
+    # Accept counter format: "TRIGGER 1", "TRIGGER 2", ...
+    if re.match(r"^TRIGGER\s+\d+$", line):
+        return True, line
+    return False, line
+
+
+def has_vehicle_in_frame(model: YOLO, frame: np.ndarray) -> bool:
+    ai_frame = suppress_camera_overlay(frame)
+    results = model.predict(
+        source=ai_frame,
+        conf=0.15,
+        iou=0.55,
+        imgsz=960,
+        device=0 if torch.cuda.is_available() else "cpu",
+        half=torch.cuda.is_available(),
+        verbose=False,
+    )
+    for r in results:
+        for box in r.boxes:
+            cls_id = int(box.cls[0]) if box.cls is not None else -1
+            if cls_id in VEHICLE_CLASS_IDS:
+                return True
+    return False
 
 
 def capture_burst(cap: cv2.VideoCapture, n: int) -> List[np.ndarray]:
@@ -190,11 +219,26 @@ def main():
 
     ser = init_serial()
     print("Waiting for Arduino trigger...")
+    last_trigger_time = 0.0
 
     while True:
-        trig = wait_for_trigger(ser)
-        if not trig:
+        ok, preview_frame = cap.read()
+        if not ok or preview_frame is None:
             continue
+
+        trig, raw_line = wait_for_trigger(ser)
+        if not trig:
+            if raw_line:
+                print(f"[serial] Ignored line: {raw_line}")
+            continue
+        now = time.time()
+        if (now - last_trigger_time) < PYTHON_TRIGGER_COOLDOWN_SEC:
+            print("[serial] Trigger ignored due to Python cooldown.")
+            continue
+        if REQUIRE_VEHICLE_ON_TRIGGER and not has_vehicle_in_frame(model, preview_frame):
+            print(f"[trigger] {raw_line} ignored (no vehicle seen in frame).")
+            continue
+        last_trigger_time = now
 
         print("Trigger received -> capturing burst")
         burst = capture_burst(cap, BURST_FRAMES)

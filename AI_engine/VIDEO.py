@@ -25,7 +25,7 @@ VIDEO_OUTPUT = "anpr_output.mp4"
 CSV_OUTPUT = "anpr_output.csv"
 YOLO_MODEL = "v3.pt"
 FRAME_SKIP = 1  # best recall
-YOLO_CONF = 0.10
+YOLO_CONF = 0.25
 YOLO_IOU = 0.55
 YOLO_IMGSZ = 1280  # better small-object recall (motorbike plates)
 MIN_OCR_SCORE = 0.50  # reject weak OCR to reduce wrong red boxes
@@ -446,7 +446,7 @@ def main():
                         track_memory[matched]["sent_to_portal"] = True
 
             # Age out stale tracks so old boxes don't remain forever.
-            active_centers = [((x1 + x2) // 2, (y1 + y2) // 2) for x1, y1, x2, y2, _, _ in detections]
+            active_centers = [((int(det[0]) + int(det[2])) // 2, (int(det[1]) + int(det[3])) // 2) for det in detections]
             for tid in list(track_memory.keys()):
                 tx, ty = track_memory[tid]["center"]
                 near_any = any(abs(tx - cx) + abs(ty - cy) < 180 for cx, cy in active_centers)
