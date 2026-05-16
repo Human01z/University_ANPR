@@ -31,7 +31,9 @@
       corrected_plate: fd.get('corrected_plate') || '',
       best_image: fd.get('best_image') || '',
       source: fd.get('source') || 'dashboard',
-      admin_password: fd.get('admin_password') || ''
+      admin_password: fd.get('admin_password') || '',
+      sub_parent_id: fd.get('sub_parent_id') || '',
+      sub_plate: fd.get('sub_plate') || ''
     };
 
     const q = loadQueue();

@@ -1,54 +1,67 @@
-// --- Configuration ---
-const int irSensorPin = 2; // Pin connected to the IR sensor's OUT/DO pin
-const int ledPin = 13;     // Built-in LED for visual feedback on the board
+// ANPR Gate Trigger (Arduino Uno)
+// Sends "TRIGGER <count>" over Serial when IR beam/sensor detects a vehicle.
+// Compatible with tapo_trigger_gpu.py defaults:
+//   ARDUINO_BAUD = 9600
+//   ARDUINO_TRIGGER_WORDS includes "TRIGGER"
 
-// --- State Variables ---
-int lastSensorState = HIGH; // Most IR modules output HIGH when idle, LOW when detecting
+// --- Pin Configuration ---
+const int irSensorPin = 2;   // IR sensor OUT/DO -> D2
+const int ledPin = 13;       // Built-in LED
+
+// Most common IR modules: HIGH when idle, LOW when object detected.
+const int IDLE_STATE = HIGH;
+const int DETECT_STATE = LOW;
+
+// --- Timing / Stability ---
+const unsigned long cooldownDelayMs = 4000; // avoid duplicate triggers per vehicle
+const unsigned long debounceMs = 50;        // suppress electrical noise
+
+int lastSensorState = IDLE_STATE;
 unsigned long lastTriggerTime = 0;
-
-// Set a cooldown so one slow car doesn't trigger it twice
-// 4000 milliseconds = 4 seconds before it can trigger again
-const unsigned long cooldownDelay = 4000; 
+unsigned long lastStateChangeTime = 0;
+int triggerCount = 0;
 
 void setup() {
-  // Start serial communication at 9600 baud (MUST match Python script)
   Serial.begin(9600);
-  
-  pinMode(irSensorPin, INPUT);
+  pinMode(irSensorPin, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
-  
-  // Flash the built-in LED once to show the board has rebooted and is ready
+
+  // Ready blink
   digitalWrite(ledPin, HIGH);
-  delay(500);
+  delay(250);
   digitalWrite(ledPin, LOW);
+  Serial.println("System Ready. Waiting for beam...");
 }
 
 void loop() {
-  // Read the current state of the IR sensor
   int currentState = digitalRead(irSensorPin);
+  unsigned long now = millis();
 
-  // Check if the state changed from IDLE (HIGH) to DETECTED (LOW)
-  if (currentState == LOW && lastSensorState == HIGH) {
-    
-    // Check if the cooldown period has passed
-    if (millis() - lastTriggerTime > cooldownDelay) {
-      
-      // --- THIS IS THE MAGIC WORD PYTHON IS WAITING FOR ---
-      Serial.println("TRIGGER");
-      
-      // Flash the onboard LED so you know it worked visually
-      digitalWrite(ledPin, HIGH); 
-      delay(200);                 
-      digitalWrite(ledPin, LOW);
-      
-      // Reset the cooldown timer
-      lastTriggerTime = millis();
-    }
+  // Track state changes for debounce timing.
+  if (currentState != lastSensorState) {
+    lastStateChangeTime = now;
+    lastSensorState = currentState;
   }
 
-  // Save the current state for the next loop
-  lastSensorState = currentState;
-  
-  // A tiny delay to "debounce" the sensor and stop electrical noise
-  delay(50); 
+  // Only process stable state after debounce interval.
+  if ((now - lastStateChangeTime) < debounceMs) {
+    delay(5);
+    return;
+  }
+
+  // Fire only when sensor is in DETECT state and cooldown is over.
+  if (currentState == DETECT_STATE && (now - lastTriggerTime) >= cooldownDelayMs) {
+    triggerCount++;
+    Serial.print("TRIGGER ");
+    Serial.println(triggerCount);
+
+    digitalWrite(ledPin, HIGH);
+    delay(120);
+    digitalWrite(ledPin, LOW);
+
+    lastTriggerTime = now;
+  }
+
+  delay(10);
 }
+

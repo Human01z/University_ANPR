@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset='utf-8'><title>Verify Event</title><link rel='stylesheet' href='/static/style.css'><script defer src='/static/offline.js'></script></head>
+<!doctype html><html><head><meta charset='utf-8'><title>Verify Event</title><link rel='stylesheet' href='/static/style.css?v=5'><script defer src='/static/offline.js'></script></head>
 <body><header>
   <div class='header-brand-container'>
     <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
@@ -9,16 +9,45 @@
     </div>
   </div>
   <div class='log-subheading verify-sub'>Verification</div>
-  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><a href='/logout'>Logout</a></nav>
+  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><details class='settings-menu'>
+  <summary class='settings-trigger' title='Settings'>
+    <span class='settings-icon' aria-hidden='true'>
+      <svg viewBox='0 0 24 24' width='20' height='20'>
+        <path d='M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5-2-3.5-2.4 1a8 8 0 0 0-2.6-1.5L14 2h-4l-.4 3a8 8 0 0 0-2.6 1.5l-2.4-1-2 3.5 2 1.5A9 9 0 0 0 4.5 12c0 .5 0 1 .1 1.5l-2 1.5 2 3.5 2.4-1a8 8 0 0 0 2.6 1.5l.4 3h4l.4-3a8 8 0 0 0 2.6-1.5l2.4 1 2-3.5-2-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z'/>
+      </svg>
+    </span>
+    <span class='settings-label'>Settings</span>
+  </summary>
+  <div class='settings-panel'>
+    <div class='settings-left'>
+    <label class='settings-toggle'><input id='unreadAlertToggle' type='checkbox'> Unread/unrecognized alerts</label>
+    <a class='settings-logout' href='/logout'>Logout</a>
+  </div>
+    {% if source != 'logs' %}
+    <form method='post' action='/events/manual-incident' enctype='multipart/form-data'>
+      <h4>Add New Incident</h4>
+      <input type='hidden' name='return_to' value='/events/{{event["id"]}}?source=dashboard'>
+      <input name='parent_event_id' placeholder='Original event ID' required>
+      <input name='sub_plate' placeholder='Plate / note' required>
+      <input type='file' name='incident_image' accept='image/*'>
+      <button class='btn-primary' type='submit'>Add Incident</button>
+      <p class='hint'>Must be within 4 hours of original event.</p>
+    </form>
+    {% else %}
+    <p class='hint'>Incident creation is available from Dashboard review.</p>
+    {% endif %}
+  </div>
+</details></nav>
 </header>
 
 <div class='page-wrap verify-shell'>
+  {% if incident_error %}<div class='incident-error'>{{incident_error}}</div>{% endif %}
   <section class='verify-info-card'>
     <p class='verify-kicker'><strong>AI No Plate Detection Result</strong></p>
     <div class='verify-plate'><strong>{{event['plate_ai'] or 'NOT_FOUND'}}</strong></div>
     <div class='verify-meta'>
       <span><b>Confidence:</b> {{'%.3f'|format(event['ai_conf'] or 0)}}</span>
-      <span><b>Date/Time:</b> {{event['event_time']}}</span>
+      <span><b>Date/Time:</b> {{event['event_time']|event_time}}</span>
       <span><b>Direction:</b> {{event['direction'] or 'N/A'}}</span>
       <span><b>Gate:</b> {{event['gate'] or 'N/A'}}</span>
     </div>
@@ -46,6 +75,33 @@
     <input name='corrected_plate' placeholder='Type corrected plate here'>
     </label>
 
+
+    {% if sub_events %}
+    <section class='sub-event-list'>
+      <h3>Vehicles under trigger #{{root_event_id}}</h3>
+      <table>
+        <tr><th>Sub</th><th>Event ID</th><th>Plate</th><th>Status</th><th>Time</th></tr>
+        {% for sub in sub_events %}
+        <tr><td>{{sub['sub_event_no']}}</td><td>{{sub['id']}}</td><td>{{sub['plate_final'] or sub['plate_ai']}}</td><td>{{sub['status']}}</td><td>{{sub['event_time']|event_time}}</td></tr>
+        {% endfor %}
+      </table>
+    </section>
+    {% endif %}
+
+    {% if source != 'logs' %}
+    <section class='sub-event-card'>
+      <h3>Add Extra Vehicle Under This Trigger</h3>
+      <p class='hint'>Use this when 2-3 vehicles pass on one sensor trigger. No admin password is required here. {{sub_event_slots_left}} sub-event slot(s) left.</p>
+      <label>Original Trigger Event ID
+        <input name='sub_parent_id' value='{{root_event_id}}' placeholder='Original trigger event ID'>
+      </label>
+      <label>Extra Vehicle Plate
+        <input name='sub_plate' placeholder='Type extra plate number'>
+      </label>
+      <button class='btn-primary' name='action' value='add_sub_event' {% if sub_event_slots_left <= 0 %}disabled{% endif %}>Add Sub Event</button>
+    </section>
+    {% endif %}
+
     {% if source == 'logs' %}
     <label>Admin Password (Required for historical edit)
       <input type='password' name='admin_password' placeholder='Enter admin password'>
@@ -66,4 +122,5 @@
 
   <p class='hint'>If offline, action is queued on tablet and synced automatically when internet returns.</p>
 </div>
-</body></html>
+<div id='unreadAlert' class='bottom-alert' data-count='{{unread_alert_count or 0}}'>⚠ {{unread_alert_count or 0}} unread/unrecognized pending event(s) need guard review.</div>
+<script src='/static/settings.js?v=5'></script></body></html>

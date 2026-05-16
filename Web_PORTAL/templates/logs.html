@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset='utf-8'><title>Log Book</title><link rel='stylesheet' href='/static/style.css'></head>
+<!doctype html><html><head><meta charset='utf-8'><title>Log Book</title><link rel='stylesheet' href='/static/style.css?v=5'></head>
 <body><header>
   <div class='header-brand-container'>
     <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
@@ -23,12 +23,13 @@
 <input type='time' name='time_to' value='{{filters.time_to}}'>
 <button type='submit' class='btn-primary'>Search</button>
 </form>
-<table><tr><th>ID</th><th>Final Plate</th><th>AI</th><th>Type</th><th>Dir</th><th>Status</th><th>Reviewer</th><th>Time</th><th>Image</th><th>Open</th></tr>
+<table><tr><th>ID</th><th>Group</th><th>Final Plate</th><th>AI</th><th>Type</th><th>Dir</th><th>Status</th><th>Reviewer</th><th>Time</th><th>Image</th><th>Open</th></tr>
 {% for e in events %}
 <tr>
-  <td>{{e['id']}}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']}}</td>
+  <td>{{e['id']}}</td><td>{% if e['parent_event_id'] %}#{{e['parent_event_id']}} / {{e['sub_event_no']}}{% else %}Original{% endif %}</td><td>{{e['plate_final']}}</td><td>{{e['plate_ai']}}</td><td>{{e['vehicle_type']}}</td><td>{{e['direction']}}</td><td>{{e['status']}}</td><td>{{e['reviewed_by']}}</td><td>{{e['event_time']|event_time}}</td>
   <td>{% if e['best_image_path'] %}<a class='btn-primary table-action' target='_blank' href='/{{e["best_image_path"]}}'>View</a>{% else %}-{% endif %}</td>
   <td><a class='btn-primary table-action' href='/events/{{e["id"]}}?source=logs'>Details</a></td>
 </tr>
 {% endfor %}
-</table></div></body></html>
+</table></div><div id='unreadAlert' class='bottom-alert' data-count='{{unread_alert_count or 0}}'>⚠ {{unread_alert_count or 0}} unread/unrecognized pending event(s) need guard review.</div>
+<script src='/static/settings.js?v=5'></script></body></html>

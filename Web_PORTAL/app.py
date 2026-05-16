@@ -7,6 +7,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -19,6 +20,7 @@ BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "anpr_mvp.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
 RETENTION_DAYS = 180
+MAX_VEHICLES_PER_TRIGGER = 4
 SECRET_KEY = os.environ.get("ANPR_SECRET", secrets.token_hex(24))
 
 app = FastAPI(title="ANPR Guard MVP")
@@ -26,6 +28,19 @@ app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY, same_site="lax")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+def format_event_time(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(value).replace("T", " ").split("+")[0].split(".")[0]
+
+
+templates.env.filters["event_time"] = format_event_time
 
 
 def utcnow_iso() -> str:
@@ -82,6 +97,14 @@ def init_db():
         """
     )
 
+    for column_name, column_sql in {
+        "parent_event_id": "ALTER TABLE events ADD COLUMN parent_event_id INTEGER",
+        "sub_event_no": "ALTER TABLE events ADD COLUMN sub_event_no INTEGER",
+    }.items():
+        existing = [row[1] for row in cur.execute("PRAGMA table_info(events)").fetchall()]
+        if column_name not in existing:
+            cur.execute(column_sql)
+
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS audit_logs (
@@ -130,6 +153,67 @@ def is_valid_admin_password(conn: sqlite3.Connection, password: str) -> bool:
     return row is not None
 
 
+
+def parse_event_datetime(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def is_unread_or_unrecognized(value: str) -> bool:
+    text = (value or "").strip().upper()
+    if not text:
+        return True
+    unread_tokens = ("NOT_FOUND", "PLATE_NOT_CLEAR", "UNREAD", "UNRECOGNIZED", "UNKNOWN", "NO_PLATE")
+    return text.startswith("??") or any(token in text for token in unread_tokens)
+
+
+def unread_event_count(conn: sqlite3.Connection) -> int:
+    rows = conn.execute("SELECT plate_ai FROM events WHERE status='pending'").fetchall()
+    return sum(1 for row in rows if is_unread_or_unrecognized(row["plate_ai"]))
+
+
+def common_context(conn: sqlite3.Connection) -> dict:
+    return {"unread_alert_count": unread_event_count(conn)}
+
+
+def safe_return_path(value: str) -> str:
+    if not value or not value.startswith("/") or value.startswith("//"):
+        return "/dashboard"
+    return value
+
+
+def redirect_with_incident_error(return_to: str, message: str):
+    target = safe_return_path(return_to)
+    separator = "&" if "?" in target else "?"
+    return RedirectResponse(f"{target}{separator}incident_error={quote(message)}", status_code=303)
+
+
+def ensure_parent_allows_sub_event(parent) -> Optional[str]:
+    event_dt = parse_event_datetime(parent["event_time"])
+    if not event_dt:
+        return "Original event time is invalid; cannot add incident safely."
+    age_seconds = (datetime.now(timezone.utc) - event_dt).total_seconds()
+    if age_seconds > 4 * 60 * 60:
+        return "Sub-events must be added within 4 hours of the original trigger event."
+    return None
+
+
+def save_upload_file(upload: Optional[UploadFile]) -> Optional[str]:
+    if not upload or not upload.filename:
+        return None
+    suffix = Path(upload.filename).suffix or ".jpg"
+    out_name = f"manual_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}{suffix}"
+    out_path = UPLOAD_DIR / out_name
+    out_path.write_bytes(upload.file.read())
+    return f"uploads/{out_name}"
+
 def cleanup_non_best_images(image_paths: list[str], best_image: Optional[str]):
     for p in image_paths:
         if best_image and p == best_image:
@@ -162,6 +246,78 @@ def parse_images_json(raw_value) -> list[str]:
     return []
 
 
+def get_root_event_id(event) -> int:
+    return int(event["parent_event_id"] or event["id"])
+
+
+def create_manual_sub_event(
+    conn: sqlite3.Connection,
+    parent_id: int,
+    plate: str,
+    actor: str,
+    fallback_event,
+    best_image: Optional[str],
+    uploaded_image_path: Optional[str] = None,
+    enforce_four_hour_window: bool = True,
+):
+    parent = conn.execute("SELECT * FROM events WHERE id=?", (parent_id,)).fetchone()
+    if not parent:
+        return None, "Original trigger event ID was not found."
+    if parent["parent_event_id"]:
+        return None, "Please enter the original trigger event ID, not another sub-event ID."
+    if enforce_four_hour_window:
+        time_error = ensure_parent_allows_sub_event(parent)
+        if time_error:
+            return None, time_error
+
+    current_count = conn.execute(
+        "SELECT COUNT(*) AS c FROM events WHERE parent_event_id=?",
+        (parent_id,),
+    ).fetchone()["c"]
+    if current_count >= (MAX_VEHICLES_PER_TRIGGER - 1):
+        return None, f"This trigger already has the maximum {MAX_VEHICLES_PER_TRIGGER} vehicles."
+
+    plate = plate.strip().upper()
+    if not plate:
+        return None, "Enter the extra vehicle plate before adding a sub-event."
+
+    parent_images = parse_images_json(parent["all_images_json"])
+    fallback_images = parse_images_json(fallback_event["all_images_json"])
+    chosen_best = uploaded_image_path or (best_image if best_image in fallback_images else (parent["best_image_path"] or (parent_images[0] if parent_images else None)))
+    images_json = json.dumps([chosen_best] if chosen_best else [])
+    now = utcnow_iso()
+    sub_no = int(current_count) + 1
+
+    cur = conn.execute(
+        """
+        INSERT INTO events(plate_ai,plate_final,ai_conf,direction,gate,vehicle_type,status,event_time,best_image_path,all_images_json,reviewed_by,reviewed_at,created_at,updated_at,parent_event_id,sub_event_no)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "MANUAL",
+            plate,
+            1.0,
+            parent["direction"] or fallback_event["direction"],
+            parent["gate"] or fallback_event["gate"],
+            fallback_event["vehicle_type"] or parent["vehicle_type"] or "vehicle",
+            "approved",
+            parent["event_time"],
+            chosen_best,
+            images_json,
+            actor,
+            now,
+            now,
+            now,
+            parent_id,
+            sub_no,
+        ),
+    )
+    sub_id = cur.lastrowid
+    add_audit(conn, sub_id, actor, "add_sub_event", f"parent={parent_id}; plate={plate}; sub_no={sub_no}")
+    add_audit(conn, parent_id, actor, "add_sub_event", f"sub_event={sub_id}; plate={plate}; sub_no={sub_no}")
+    return sub_id, None
+
+
 @app.on_event("startup")
 def startup_event():
     init_db()
@@ -192,18 +348,19 @@ def logout(request: Request):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request):
+def dashboard(request: Request, incident_error: str = ""):
     user = require_user(request)
     conn = db_conn()
     rows = conn.execute(
         "SELECT * FROM events WHERE status='pending' ORDER BY datetime(event_time) DESC LIMIT 100"
     ).fetchall()
+    context = {"request": request, "user": user, "events": rows, "incident_error": incident_error, **common_context(conn)}
     conn.close()
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user, "events": rows})
+    return templates.TemplateResponse("dashboard.html", context)
 
 
 @app.get("/events/{event_id}", response_class=HTMLResponse)
-def event_detail(request: Request, event_id: int, source: str = "dashboard"):
+def event_detail(request: Request, event_id: int, source: str = "dashboard", incident_error: str = ""):
     user = require_user(request)
     conn = db_conn()
     event = conn.execute("SELECT * FROM events WHERE id=?", (event_id,)).fetchone()
@@ -211,9 +368,28 @@ def event_detail(request: Request, event_id: int, source: str = "dashboard"):
         conn.close()
         raise HTTPException(404, "Event not found")
     images = parse_images_json(event["all_images_json"])
+    root_event_id = get_root_event_id(event)
+    sub_events = conn.execute(
+        "SELECT * FROM events WHERE parent_event_id=? ORDER BY sub_event_no ASC, id ASC",
+        (root_event_id,),
+    ).fetchall()
+    base_context = common_context(conn)
     conn.close()
     source = "logs" if source == "logs" else "dashboard"
-    context = {"request": request, "user": user, "event": event, "images": images, "source": source, "error": None}
+    context = {
+        "request": request,
+        "user": user,
+        "event": event,
+        "images": images,
+        "source": source,
+        "error": None,
+        "message": None,
+        "incident_error": incident_error,
+        "root_event_id": root_event_id,
+        "sub_events": sub_events,
+        "sub_event_slots_left": max(0, (MAX_VEHICLES_PER_TRIGGER - 1) - len(sub_events)),
+        **base_context,
+    }
     try:
         return templates.TemplateResponse("event_detail.html", context)
     except TemplateNotFound:
@@ -230,6 +406,8 @@ def review_event(
     best_image: str = Form(""),
     source: str = Form("dashboard"),
     admin_password: str = Form(""),
+    sub_parent_id: str = Form(""),
+    sub_plate: str = Form(""),
 ):
     user = require_user(request)
     conn = db_conn()
@@ -248,6 +426,47 @@ def review_event(
     }
     source = "logs" if source == "logs" else "dashboard"
 
+    if action == "add_sub_event":
+        if source == "logs":
+            conn.close()
+            raise HTTPException(400, "Sub-events can only be added from dashboard review.")
+        try:
+            parent_id = int(sub_parent_id or get_root_event_id(event))
+        except ValueError:
+            parent_id = 0
+        sub_id, sub_error = create_manual_sub_event(
+            conn,
+            parent_id,
+            sub_plate,
+            user["username"],
+            event,
+            best_image,
+        )
+        if sub_error:
+            root_event_id = get_root_event_id(event)
+            sub_events = conn.execute(
+                "SELECT * FROM events WHERE parent_event_id=? ORDER BY sub_event_no ASC, id ASC",
+                (root_event_id,),
+            ).fetchall()
+            context = {
+                "request": request,
+                "user": user,
+                "event": event,
+                "images": images,
+                "source": "dashboard",
+                "error": sub_error,
+                "message": None,
+                "root_event_id": root_event_id,
+                "sub_events": sub_events,
+                "sub_event_slots_left": max(0, (MAX_VEHICLES_PER_TRIGGER - 1) - len(sub_events)),
+                **common_context(conn),
+            }
+            conn.close()
+            return templates.TemplateResponse("event_detail.html", context, status_code=400)
+        conn.commit()
+        conn.close()
+        return RedirectResponse(f"/events/{event_id}?source=dashboard", status_code=303)
+
     if source == "logs":
         # Historical logs page should only allow plate corrections.
         if action != "edit_save":
@@ -261,6 +480,14 @@ def review_event(
                 "images": images,
                 "source": "logs",
                 "error": "Admin password required to update a saved historical record.",
+                "message": None,
+                "root_event_id": get_root_event_id(event),
+                "sub_events": conn.execute(
+                    "SELECT * FROM events WHERE parent_event_id=? ORDER BY sub_event_no ASC, id ASC",
+                    (get_root_event_id(event),),
+                ).fetchall(),
+                "sub_event_slots_left": 0,
+                **common_context(conn),
             }
             conn.close()
             return templates.TemplateResponse("event_detail.html", context, status_code=403)
@@ -285,6 +512,14 @@ def review_event(
         """,
         (status, final_plate, chosen_best, kept_images_json, user["username"], utcnow_iso(), utcnow_iso(), event_id),
     )
+
+    if status == "approved" and chosen_best and images:
+        conn.execute(
+            "UPDATE events SET best_image_path=?, all_images_json=?, updated_at=? WHERE parent_event_id=? AND best_image_path IN ("
+            + ",".join("?" for _ in images)
+            + ")",
+            (chosen_best, json.dumps([chosen_best]), utcnow_iso(), event_id, *images),
+        )
 
     add_audit(conn, event_id, user["username"], action, f"final={final_plate}; best_image={chosen_best}")
     next_pending = conn.execute(
@@ -351,6 +586,7 @@ def logs(
 
     sql += " ORDER BY datetime(event_time) DESC LIMIT 300"
     rows = conn.execute(sql, params).fetchall()
+    base_context = common_context(conn)
     conn.close()
 
     return templates.TemplateResponse(
@@ -359,6 +595,7 @@ def logs(
             "request": request,
             "user": user,
             "events": rows,
+            **base_context,
             "filters": {
                 "q": q,
                 "direction": direction,
@@ -371,6 +608,50 @@ def logs(
             },
         },
     )
+
+
+@app.post("/events/manual-incident")
+def manual_incident(
+    request: Request,
+    parent_event_id: int = Form(...),
+    sub_plate: str = Form(""),
+    return_to: str = Form("/dashboard"),
+    incident_image: Optional[UploadFile] = File(None),
+):
+    user = require_user(request)
+    conn = db_conn()
+    parent = conn.execute("SELECT * FROM events WHERE id=?", (parent_event_id,)).fetchone()
+    if not parent:
+        conn.close()
+        return redirect_with_incident_error(return_to, "Original trigger event was not found.")
+    if parent["parent_event_id"]:
+        conn.close()
+        return redirect_with_incident_error(return_to, "Please enter the original trigger event ID, not another sub-event ID.")
+    if not sub_plate.strip():
+        conn.close()
+        return redirect_with_incident_error(return_to, "Enter the incident plate or note before saving.")
+    time_error = ensure_parent_allows_sub_event(parent)
+    if time_error:
+        conn.close()
+        return redirect_with_incident_error(return_to, time_error)
+
+    uploaded_path = save_upload_file(incident_image)
+    sub_id, sub_error = create_manual_sub_event(
+        conn,
+        parent_event_id,
+        sub_plate,
+        user["username"],
+        parent,
+        None,
+        uploaded_image_path=uploaded_path,
+    )
+    if sub_error:
+        conn.close()
+        return redirect_with_incident_error(return_to, sub_error)
+
+    conn.commit()
+    conn.close()
+    return RedirectResponse(safe_return_path(return_to), status_code=303)
 
 
 @app.post("/api/events")
@@ -477,6 +758,25 @@ async def sync_actions(request: Request):
             continue
 
         images = parse_images_json(event["all_images_json"])
+        if action == "add_sub_event":
+            if source == "logs":
+                continue
+            try:
+                parent_id = int(item.get("sub_parent_id") or get_root_event_id(event))
+            except ValueError:
+                parent_id = 0
+            sub_id, sub_error = create_manual_sub_event(
+                conn,
+                parent_id,
+                item.get("sub_plate") or "",
+                user["username"],
+                event,
+                best_image,
+            )
+            if not sub_error:
+                applied += 1
+            continue
+
         status_map = {"approve": "approved", "edit_save": "approved", "reject": "rejected", "flag": "flagged"}
         status = status_map.get(action)
         if not status:
