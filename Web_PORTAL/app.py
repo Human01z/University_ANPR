@@ -19,6 +19,11 @@ from starlette.middleware.sessions import SessionMiddleware
 BASE_DIR = Path(__file__).parent
 DB_PATH = BASE_DIR / "data" / "anpr_mvp.db"
 UPLOAD_DIR = BASE_DIR / "uploads"
+# Create runtime directories before StaticFiles/db setup. Without this, a fresh
+# Windows install can fail or render 500s after login if uploads/data do not
+# exist yet.
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 RETENTION_DAYS = 180
 MAX_VEHICLES_PER_TRIGGER = 4
 SECRET_KEY = os.environ.get("ANPR_SECRET", secrets.token_hex(24))
@@ -55,6 +60,24 @@ def db_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def table_columns(cur: sqlite3.Cursor, table_name: str) -> set[str]:
+    return {row[1] for row in cur.execute(f"PRAGMA table_info({table_name})").fetchall()}
+
+
+def add_missing_columns(cur: sqlite3.Cursor, table_name: str, columns: dict[str, str]) -> None:
+    """Add nullable/defaulted columns for users upgrading an older local DB.
+
+    Field laptops may keep `data/anpr_mvp.db` between code updates.
+    `CREATE TABLE IF NOT EXISTS` does not update an old table, so later SELECTs
+    can fail with "no such column" and FastAPI shows Internal Server Error after
+    login. Keep migrations simple and SQLite-compatible.
+    """
+    existing = table_columns(cur, table_name)
+    for column_name, column_sql in columns.items():
+        if column_name not in existing:
+            cur.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
 
 
 def init_db():
@@ -97,14 +120,60 @@ def init_db():
         """
     )
 
-    for column_name, column_sql in {
-        "parent_event_id": "ALTER TABLE events ADD COLUMN parent_event_id INTEGER",
-        "sub_event_no": "ALTER TABLE events ADD COLUMN sub_event_no INTEGER",
-    }.items():
-        existing = [row[1] for row in cur.execute("PRAGMA table_info(events)").fetchall()]
-        if column_name not in existing:
-            cur.execute(column_sql)
+    add_missing_columns(
+        cur,
+        "events",
+        {
+            "plate_ai": "plate_ai TEXT",
+            "plate_final": "plate_final TEXT",
+            "ai_conf": "ai_conf REAL DEFAULT 0",
+            "direction": "direction TEXT",
+            "gate": "gate TEXT",
+            "vehicle_type": "vehicle_type TEXT",
+            "status": "status TEXT NOT NULL DEFAULT 'pending'",
+            "event_time": "event_time TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+            "best_image_path": "best_image_path TEXT",
+            "all_images_json": "all_images_json TEXT NOT NULL DEFAULT '[]'",
+            "reviewed_by": "reviewed_by TEXT",
+            "reviewed_at": "reviewed_at TEXT",
+            "created_at": "created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+            "updated_at": "updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+            "parent_event_id": "parent_event_id INTEGER",
+            "sub_event_no": "sub_event_no INTEGER",
+        },
+    )
 
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS registered_vehicles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_name TEXT NOT NULL,
+            plate_no TEXT,
+            category TEXT NOT NULL CHECK(category IN ('student','lecturer','staff','other','banned')),
+            image_path TEXT,
+            notes TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    add_missing_columns(
+        cur,
+        "registered_vehicles",
+        {
+            "owner_name": "owner_name TEXT NOT NULL DEFAULT ''",
+            "plate_no": "plate_no TEXT",
+            "category": "category TEXT NOT NULL DEFAULT 'other'",
+            "image_path": "image_path TEXT",
+            "notes": "notes TEXT",
+            "created_by": "created_by TEXT",
+            "created_at": "created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+            "updated_at": "updated_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+        },
+    )
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS audit_logs (
@@ -116,6 +185,18 @@ def init_db():
             created_at TEXT NOT NULL
         )
         """
+    )
+
+    add_missing_columns(
+        cur,
+        "audit_logs",
+        {
+            "event_id": "event_id INTEGER",
+            "actor": "actor TEXT NOT NULL DEFAULT 'system'",
+            "action": "action TEXT NOT NULL DEFAULT 'unknown'",
+            "details": "details TEXT",
+            "created_at": "created_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00+00:00'",
+        },
     )
 
     # seed accounts
@@ -652,6 +733,66 @@ def manual_incident(
     conn.commit()
     conn.close()
     return RedirectResponse(safe_return_path(return_to), status_code=303)
+
+
+@app.get("/vehicles/new", response_class=HTMLResponse)
+def new_vehicle_page(request: Request):
+    user = require_user(request)
+    conn = db_conn()
+    latest = conn.execute("SELECT * FROM registered_vehicles ORDER BY id DESC LIMIT 30").fetchall()
+    context = {"request": request, "user": user, "error": "", "success": "", "latest": latest, **common_context(conn)}
+    conn.close()
+    return templates.TemplateResponse("new_vehicle.html", context)
+
+
+@app.post("/vehicles/new", response_class=HTMLResponse)
+def create_vehicle(
+    request: Request,
+    owner_name: str = Form(""),
+    plate_no: str = Form(""),
+    category: str = Form("other"),
+    notes: str = Form(""),
+    vehicle_image: Optional[UploadFile] = File(None),
+):
+    user = require_user(request)
+    owner_name = owner_name.strip()
+    plate_no = plate_no.strip().upper()
+    notes = notes.strip()
+    allowed = {"student", "lecturer", "staff", "other", "banned"}
+
+    conn = db_conn()
+    if not owner_name:
+        latest = conn.execute("SELECT * FROM registered_vehicles ORDER BY id DESC LIMIT 30").fetchall()
+        context = {"request": request, "user": user, "error": "Owner name is required.", "success": "", "latest": latest, **common_context(conn)}
+        conn.close()
+        return templates.TemplateResponse("new_vehicle.html", context, status_code=400)
+
+    if category not in allowed:
+        category = "other"
+
+    image_path = None
+    if vehicle_image and vehicle_image.filename:
+        suffix = Path(vehicle_image.filename).suffix or ".jpg"
+        out_name = f"vehicle_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}{suffix}"
+        out_path = UPLOAD_DIR / out_name
+        out_path.write_bytes(vehicle_image.file.read())
+        image_path = f"uploads/{out_name}"
+
+    now = utcnow_iso()
+    conn.execute(
+        """
+        INSERT INTO registered_vehicles(owner_name,plate_no,category,image_path,notes,created_by,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?)
+        """,
+        (owner_name, plate_no or None, category, image_path, notes or None, user["username"], now, now),
+    )
+    row_id = conn.execute("SELECT last_insert_rowid() AS rid").fetchone()["rid"]
+    add_audit(conn, None, user["username"], "register_vehicle", f"vehicle_id={row_id}; owner={owner_name}; plate={plate_no}; category={category}")
+    conn.commit()
+    latest = conn.execute("SELECT * FROM registered_vehicles ORDER BY id DESC LIMIT 30").fetchall()
+    context = {"request": request, "user": user, "error": "", "success": "Vehicle registered successfully.", "latest": latest, **common_context(conn)}
+    conn.close()
+    return templates.TemplateResponse("new_vehicle.html", context)
 
 
 @app.post("/api/events")

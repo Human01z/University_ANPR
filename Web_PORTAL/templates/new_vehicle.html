@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Register Vehicle</title><link rel='stylesheet' href='/static/style.css?v=6'></head>
+<body><header>
+  <div class='header-brand-container'>
+    <img src='/static/logo.PNG' alt='University Logo' class='header-emblem'>
+    <div class='header-title-stack'>
+      <h1>University of Colombo</h1>
+      <h2>Faculty of Technology</h2>
+      <h3>ANPR Security Gate System</h3>
+    </div>
+  </div>
+  <div class='log-subheading'>Vehicle Registry</div>
+  <nav><a href='/dashboard'>Dashboard</a><a href='/logs'>System Logs</a><a href='/logout'>Logout</a></nav>
+</header>
+<div class='page-wrap'>
+  <div class='vehicle-form-card'>
+    <h2>Register a Vehicle</h2>
+    <p class='hint'>Add staff/lecturer/student/banned vehicles for guard reference.</p>
+    {% if error %}<p class='err'><b>{{error}}</b></p>{% endif %}
+    {% if success %}<p class='ok'><b>{{success}}</b></p>{% endif %}
+    <form method='post' action='/vehicles/new' enctype='multipart/form-data'>
+      <label>Owner Name *</label>
+      <input name='owner_name' required placeholder='e.g. Prof. Silva'>
+      <label>Plate Number</label>
+      <input name='plate_no' placeholder='e.g. ABC-1234'>
+      <label>Classification</label>
+      <select name='category'>
+        <option value='student'>Student</option>
+        <option value='lecturer'>Lecturer</option>
+        <option value='staff'>Staff</option>
+        <option value='other' selected>Other</option>
+        <option value='banned'>Banned</option>
+      </select>
+      <label>Vehicle Image (optional)</label>
+      <input type='file' name='vehicle_image' accept='image/*'>
+      <label>Notes (optional)</label>
+      <input name='notes' placeholder='Department / reason / remarks'>
+      <button class='btn-primary' type='submit'>Save Vehicle</button>
+    </form>
+  </div>
+
+  <div class='sub-event-list'>
+    <h3>Recent Registered Vehicles</h3>
+    <table><tr><th>ID</th><th>Owner</th><th>Plate</th><th>Class</th><th>Image</th><th>Added by</th><th>Time</th></tr>
+    {% for v in latest %}
+      <tr><td>{{v['id']}}</td><td>{{v['owner_name']}}</td><td>{{v['plate_no'] or '-'}}</td><td>{{v['category']}}</td><td>{% if v['image_path'] %}<a class='btn-primary table-action' href='/{{v["image_path"]}}' target='_blank'>View</a>{% else %}-{% endif %}</td><td>{{v['created_by'] or '-'}}</td><td>{{v['created_at']|event_time}}</td></tr>
+    {% endfor %}</table>
+  </div>
+</div>
+<div id='unreadAlert' class='bottom-alert' data-count='{{unread_alert_count or 0}}'>⚠ {{unread_alert_count or 0}} unread/unrecognized pending event(s) need guard review.</div>
+<script src='/static/settings.js?v=5'></script></body></html>

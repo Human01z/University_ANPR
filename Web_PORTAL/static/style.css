@@ -99,3 +99,7 @@ td{padding:12px;border-bottom:1px solid #eee}
 .settings-left{display:flex;flex-direction:column;gap:12px}
 .settings-logout{display:flex;align-items:center;justify-content:center;text-decoration:none;background:linear-gradient(135deg,#8a3cd2,#6d28d9);color:#fff;font-weight:900;border-radius:14px;padding:13px 14px;box-shadow:0 10px 22px rgba(138,60,210,.24)}
 .settings-logout:hover{filter:brightness(.96);transform:translateY(-1px)}
+
+.ok{color:#166534;background:#ecfdf5;border-left:5px solid #22c55e;padding:10px;border-radius:10px}
+.vehicle-form-card{max-width:760px;margin:0 auto 16px;padding:22px;background:#fff;border-radius:16px;box-shadow:0 10px 22px rgba(0,0,0,.08)}
+.vehicle-form-card h2{margin:0 0 8px;color:var(--primary)}

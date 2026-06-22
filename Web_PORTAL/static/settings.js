@@ -1,4 +1,4 @@
-(function(){
+ (function(){
   const key = 'anpr_unread_alert_enabled';
   const toggle = document.getElementById('unreadAlertToggle');
   const alertBox = document.getElementById('unreadAlert');
